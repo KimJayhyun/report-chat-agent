@@ -1,0 +1,11 @@
+.claude/
+
+# Python
+.venv/
+__pycache__/
+
+# Node
+node_modules/
+
+# env
+.env

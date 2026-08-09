@@ -1,0 +1,7 @@
+{
+  "name": "report-chat-agent",
+  "private": true,
+  "scripts": {
+    "dev:web": "pnpm --filter web dev"
+  }
+}
