@@ -13,6 +13,9 @@ importers:
       '@fontsource-variable/geist':
         specifier: ^5.3.0
         version: 5.3.0
+      '@rhwp/core':
+        specifier: ^0.8.2
+        version: 0.8.2
       '@rhwp/editor':
         specifier: ^0.8.2
         version: 0.8.2
@@ -1086,6 +1089,9 @@ packages:
 
   '@radix-ui/rect@1.1.3':
     resolution: {integrity: sha512-JtyZR+mqgBibTo8xea3B6ZRmzZiM/YeVBtUkas6zMuXjAlfIFIW2FgqeM9eLyvEaYX66vr6DJMK+4U6LV0KhNw==}
+
+  '@rhwp/core@0.8.2':
+    resolution: {integrity: sha512-TjAw6qk1PcWo9Revat4va7wbDGsV7qBq8JnFxB2/JgUeJaxUsq3xIwuUoBUU8IDJ5CYx66JVfwhxlO416osrgA==}
 
   '@rhwp/editor@0.8.2':
     resolution: {integrity: sha512-2EM4VHi+8zTUW3G8SNH8y1qBwqhzFQgNjCuI3jFlcxhVK46bA3eF1XuMIKF3a8VP6KS4QyQwMKdEcNJrGDStHQ==}
@@ -3807,6 +3813,8 @@ snapshots:
       '@types/react-dom': 19.2.4(@types/react@19.2.18)
 
   '@radix-ui/rect@1.1.3': {}
+
+  '@rhwp/core@0.8.2': {}
 
   '@rhwp/editor@0.8.2': {}
 
