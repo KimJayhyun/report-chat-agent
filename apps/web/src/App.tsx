@@ -5,24 +5,31 @@ import {
   ChevronRight,
   Columns2,
   FileText,
+  LayoutTemplate,
   PanelLeft,
   PanelRight,
   Paperclip,
-  Search,
   Send,
   Settings,
   Settings2,
   Sparkles,
-  Wrench,
 } from "lucide-react";
 import { sendMessage } from "@/lib/a2aClient";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { HwpEditor } from "@/components/HwpEditor";
+import { TemplateThumbnail } from "@/components/TemplateThumbnail";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import { DOC_FORMATS, type DocFormat } from "@/lib/docFormats";
 import { cn } from "@/lib/utils";
 
 interface ChatMessage {
@@ -45,6 +52,8 @@ function App() {
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("split");
+  const [docFormat, setDocFormat] = useState<DocFormat | null>(null);
+  const [formatPickerOpen, setFormatPickerOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const handleSend = async (text = input) => {
@@ -97,6 +106,48 @@ function App() {
           새 보고서 작업
           <ChevronRight className="size-3" />
         </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1 text-xs"
+          onClick={() => setFormatPickerOpen(true)}
+        >
+          <LayoutTemplate className="size-3" />
+          {docFormat ? docFormat.name : "문서서식 선택"}
+        </Button>
+
+        <Dialog open={formatPickerOpen} onOpenChange={setFormatPickerOpen}>
+          <DialogContent className="sm:max-w-4xl">
+            <DialogHeader>
+              <DialogTitle>문서서식 선택</DialogTitle>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-4">
+              {DOC_FORMATS.map((format) => (
+                <button
+                  key={format.id}
+                  type="button"
+                  onClick={() => {
+                    setDocFormat(format);
+                    setFormatPickerOpen(false);
+                  }}
+                  className={cn(
+                    "flex flex-col gap-2 rounded-xl border-2 p-3 text-left transition-colors hover:bg-muted",
+                    docFormat?.id === format.id ? "border-primary bg-muted" : "border-transparent",
+                  )}
+                >
+                  <div className="aspect-[793.7/471.45] w-full overflow-hidden rounded-lg border shadow-sm">
+                    <TemplateThumbnail id={format.id} render={format.renderSvg} className="h-full w-full" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">{format.name}</p>
+                    <p className="text-xs text-muted-foreground">{format.description}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <ScrollArea className="flex-1">
@@ -185,14 +236,6 @@ function App() {
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" className="size-7">
               <Paperclip className="size-3.5" />
-            </Button>
-            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground">
-              <Wrench className="size-3.5" />
-              자료·도구
-            </Button>
-            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground">
-              <Search className="size-3.5" />
-              정책 근거 탐색
             </Button>
             <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground">
               <Settings2 className="size-3.5" />

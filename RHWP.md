@@ -6,7 +6,7 @@ npm 패키지는 두 개로 나뉘어 있고, 둘 다 `apps/web`에 설치돼 �
 
 ## `@rhwp/core` — 템플릿/썸네일용으로 채택
 
-> 설치 완료 (`pnpm add @rhwp/core`, v0.8.2). 다음 작업은 Vite에서 `rhwp_bg.wasm` 에셋을 어떻게 서빙할지(예: `?url` import) 정하고 실제로 `init()`이 되는지 확인하는 것.
+> 설치 완료, 실제로 연결됨: `import wasmUrl from '@rhwp/core/rhwp_bg.wasm?url'` + `init({ module_or_path: wasmUrl })` — Vite dev 서버에서 `.wasm`이 `application/wasm`으로 정상 서빙되는 것 확인함 ([apps/web/src/lib/hwpCoreTemplates.ts](apps/web/src/lib/hwpCoreTemplates.ts)). `HwpDocument.createEmpty()` → `insertText`/`insertParagraph`/`applyCharFormat` → `renderPageSvg()`까지 Node에서 직접 실행해 실동작 검증함.
 
 WASM으로 컴파일된 Rust 엔진을 **거의 그대로** 바인딩한 저수준 API. `@rhwp/editor`(iframe, 제한된 postMessage RPC)와 달리 엔진의 편집 기능 대부분이 그대로 노출돼 있음 — `HwpDocument` 클래스 하나에 2000줄 넘는 메서드가 있음 (텍스트 삽입/삭제, 서식, 표, 필드, 스타일, 번호 매기기 등).
 
@@ -39,6 +39,17 @@ insertText(section_idx: number, para_idx: number, char_offset: number, text: str
 ```
 
 보고서 유형별 템플릿(.hwp, 필드 이름 미리 배치) → `new HwpDocument(templateBytes)` → `getFieldList()`로 필드 확인 → 서버가 준 키-값을 `setFieldValueByName(key, value)`로 채움 → `renderPageSvg()` / `exportHwp()` — 이 흐름이 실제로 됨.
+
+### ⚠️ 함정: `insertParagraph(section, N)`은 "N 뒤에 추가"가 아니라 "N 위치에 삽입"
+
+여러 줄짜리 문서를 코드로 조립할 때 걸렸던 버그. `insertParagraph(section_idx, para_idx)`는 새 빈 문단을 **`para_idx` 위치에 끼워 넣고 기존 내용을 뒤로 미는** 동작이지, "그 뒤에 추가"가 아님. 그래서 매번 `insertParagraph(0, i - 1)`처럼 호출하면 새 문단이 계속 맨 앞에 끼어들어서 **문서가 역순으로 쌓이고, 심지어 문단이 안 나뉘고 문자열이 그대로 이어붙는** 증상까지 생김 (문단 인덱스가 밀리면서 `insertText`가 엉뚱한 문단에 char_offset 0으로 텍스트를 계속 앞에 꽂아넣게 됨).
+
+**끝에 이어붙이려면 항상 현재 문단 개수를 인덱스로 넘겨야 함**:
+```js
+doc.insertParagraph(0, doc.getParagraphCount(0));  // O: 끝에 추가
+doc.insertParagraph(0, i - 1);                     // X: i-1 위치에 삽입, 기존 걸 뒤로 밂
+```
+실제로 3줄("AAA-first", "BBB-second", "CCC-third")을 두 방식으로 넣고 렌더링해서 렌더된 y좌표별 텍스트로 직접 확인함 — 틀린 방식은 `CCC-thirdBBB-secondAAA-first`(역순+한 줄로 뭉침), 맞는 방식은 세 줄이 순서대로 분리되어 나옴. [apps/web/scripts/generate-hwp-templates.mjs](apps/web/scripts/generate-hwp-templates.mjs)의 `buildParagraphs`에 반영함 — 나중에 필드 삽입(`insertClickHereField`)에서 여러 문단을 다룰 때도 같은 함정을 조심해야 함.
 
 ### HWP → markdown 변환 — 없음
 
@@ -117,4 +128,14 @@ either/or가 아니라 **역할 분리**로 확정:
 
 `editor.loadFile()`이 받는 바이트 포맷(HWP/HWPX/HML)과 `core.exportHwp()`/`exportHwpx()`가 내놓는 바이트 포맷이 그대로 맞아떨어져서 핸드오프가 깔끔함. 덤으로 사용자가 결과물을 손으로 고치고 싶으면 editor의 툴바/메뉴가 이미 있으니 그것도 같이 딸려옴.
 
-남은 작업: `@rhwp/core` 설치(`rhwp_bg.wasm` 7.2MB, 서빙 방식 결정 필요) + 보고서 유형별 템플릿(.hwp, 필드 이름 미리 배치) 준비 + 서버가 주는 키-값 스키마 확정.
+남은 작업: 지금 템플릿엔 필드(누름틀)가 없음 — `insertClickHereField`로 필드 이름 미리 배치 + 서버가 주는 키-값 스키마 확정.
+
+## 템플릿 파일은 어디 있나
+
+실제 `.hwp` 파일로 만들어서 **`apps/web`(React app) 안에 정적 파일로** 둠 (브라우저가 매번 새로 조립하지 않음). Python agent는 이 파일과 무관함 — agent는 채팅 응답만 담당하고, 템플릿은 순수 프론트엔드 자산.
+
+- 생성: [apps/web/scripts/generate-hwp-templates.mjs](apps/web/scripts/generate-hwp-templates.mjs) — `@rhwp/core`로 `HwpDocument.createEmpty()` → `insertText`/`insertParagraph` → `exportHwp()`. 템플릿 내용 바꾸면 이 스크립트 다시 실행(`node scripts/generate-hwp-templates.mjs`, `apps/web`에서).
+- 저장 위치: `apps/web/public/templates/*.hwp` (지금은 `planning-report.hwp`, `press-release.hwp` 2개) — Vite가 `public/` 아래를 그대로 정적 서빙하므로 `/templates/{id}.hwp`로 바로 접근됨
+- 소비: [apps/web/src/lib/hwpCoreTemplates.ts](apps/web/src/lib/hwpCoreTemplates.ts)의 `renderTemplateSvg(id)`가 같은 origin에서 `fetch("/templates/{id}.hwp")`로 bytes를 받아서 `new HwpDocument(bytes)` → `renderPageSvg(0)`으로 썸네일 렌더링
+
+> 한 번 agent(Starlette `StaticFiles`)에 저장하는 걸로 잘못 만들었다가(불필요한 백엔드 왕복 + CORS) 되돌림 — 템플릿은 백엔드 리소스가 아니라 프론트엔드 정적 자산이라는 게 맞는 그림.
