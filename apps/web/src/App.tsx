@@ -224,7 +224,9 @@ function App() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            // 한글 등 IME 조합 중에 Enter를 누르면 마지막 글자 커밋과 전송이
+            // 동시에 발생해 입력창에 글자가 남는 문제가 있어 조합 중엔 무시.
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               handleSend();
             }
