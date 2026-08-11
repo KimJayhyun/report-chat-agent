@@ -3,6 +3,7 @@ import { sendMessage } from "@/lib/a2aClient";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { HwpEditor } from "@/components/HwpEditor";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -37,8 +38,8 @@ function App() {
   };
 
   return (
-    <main className="mx-auto flex min-h-svh max-w-lg items-center py-8">
-      <Card className="flex h-[600px] w-full flex-col">
+    <main className="mx-auto flex h-svh w-full gap-6 p-6">
+      <Card className="flex h-full w-full max-w-md flex-col">
         <CardHeader>
           <CardTitle>Report Chat Agent</CardTitle>
         </CardHeader>
@@ -83,6 +84,16 @@ function App() {
               {isSending ? "..." : "Send"}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Step 1: rhwp editor plumbing check — not wired to chat yet */}
+      <Card className="flex h-full flex-1 flex-col">
+        <CardHeader>
+          <CardTitle>HWP Editor (test)</CardTitle>
+        </CardHeader>
+        <CardContent className="flex-1 overflow-hidden">
+          <HwpEditor className="h-full w-full" />
         </CardContent>
       </Card>
     </main>
