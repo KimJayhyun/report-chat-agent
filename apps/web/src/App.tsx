@@ -14,7 +14,7 @@ import {
   Settings2,
   Sparkles,
 } from "lucide-react";
-import { sendMessage } from "@/lib/a2aClient";
+import { sendMessageStream } from "@/lib/a2aClient";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -60,16 +60,30 @@ function App() {
     const trimmed = text.trim();
     if (!trimmed || isSending) return;
 
-    setMessages((prev) => [...prev, { role: "user", text: trimmed }]);
+    // 빈 agent 버블을 바로 붙여두고, 청크가 올 때마다 그 버블의 텍스트만 이어붙인다.
+    setMessages((prev) => [...prev, { role: "user", text: trimmed }, { role: "agent", text: "" }]);
     setInput("");
     setIsSending(true);
 
+    const appendToLastMessage = (chunk: string) => {
+      setMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        next[next.length - 1] = { ...last, text: last.text + chunk };
+        return next;
+      });
+      requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
+    };
+
     try {
-      const reply = await sendMessage(trimmed);
-      setMessages((prev) => [...prev, { role: "agent", text: reply }]);
+      await sendMessageStream(trimmed, appendToLastMessage);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setMessages((prev) => [...prev, { role: "agent", text: `Error: ${message}` }]);
+      setMessages((prev) => {
+        const next = [...prev];
+        next[next.length - 1] = { role: "agent", text: `Error: ${message}` };
+        return next;
+      });
     } finally {
       setIsSending(false);
       requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
