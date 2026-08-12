@@ -14,6 +14,9 @@ import {
   Settings2,
   Sparkles,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
 import { sendMessageStream } from "@/lib/a2aClient";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -210,7 +213,21 @@ function App() {
                       : "bg-muted text-muted-foreground",
                   )}
                 >
-                  {message.text}
+                  <div
+                    className={cn(
+                      "prose prose-sm max-w-none break-words text-inherit",
+                      "prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-headings:my-1.5",
+                      "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                      // typography 플러그인은 :where() 기반이라 개별 prose-*:text-inherit로
+                      // 색을 덮으려 하면 우선순위 다툼에서 밀릴 수 있음 — 모든 자손에
+                      // color:inherit을 강제해서 항상 버블의 전경색을 따라가게 함.
+                      "[&_*]:text-inherit",
+                    )}
+                  >
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                      {message.text}
+                    </ReactMarkdown>
+                  </div>
                 </div>
               </div>
             ))}
