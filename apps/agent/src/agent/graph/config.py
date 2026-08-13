@@ -23,6 +23,11 @@ class Chain(str, Enum):
     WRITE_DOCUMENT = "write_document"
 
 
+class Tag(str, Enum):
+    NO_RENDER = "no_render"
+    WRITE_DOCUMENT = "write_document"
+
+
 class DocumentFormat(str, Enum):
     """apps/web/src/lib/docFormats.tsx의 DOC_FORMATS id와 값을 맞춤."""
 

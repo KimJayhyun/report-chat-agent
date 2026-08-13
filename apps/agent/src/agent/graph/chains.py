@@ -29,7 +29,7 @@ class LLMCollections:
         # 문서 작성 체인에서 나온 거다"를 구분할 수 있음 (기존 no_stream 태그랑 같은 방식).
         self._chains[Chain.WRITE_DOCUMENT] = (
             prompt_templates.write_document | gemma4_llm
-        ).with_config(tags=[Chain.WRITE_DOCUMENT])
+        )
 
 
 def _llm_factory(api_key: str):

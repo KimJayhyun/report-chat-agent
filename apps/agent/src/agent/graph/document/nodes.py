@@ -1,5 +1,5 @@
 from agent.graph.chains import llm_collections
-from agent.graph.config import Chain, DocumentFormat
+from agent.graph.config import Chain, DocumentFormat, Tag
 from agent.graph.states import DocumentState
 from agent.graph.tools import WriteDocumentArgs
 from agent.utils import say
@@ -79,7 +79,8 @@ async def main(state: DocumentState):
             "existing_document_section": get_existing_document_section(document_draft),
             "instruction": args.instruction,
             "key_points": key_points_text,
-        }
+        },
+        config={"tags": [Tag.WRITE_DOCUMENT]},
     )
 
     tool_message = ToolMessage(
