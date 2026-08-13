@@ -10,6 +10,7 @@ from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
 from a2a.types import TaskState
+from agent.graph.config import Chain
 from agent.graph.graph import graph
 from agent.graph.states import BaseState
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
@@ -39,9 +40,10 @@ class ReportChatAgentExecutor(AgentExecutor):
         async for event in graph.astream(
             state,
             stream_mode=["messages", "values", "custom"],
+            subgraphs=True,
             config={},
         ):
-            kind, data = event
+            _namespace, kind, data = event
 
             if kind == "messages":
                 chunk, metadata = data
@@ -83,10 +85,20 @@ class ReportChatAgentExecutor(AgentExecutor):
                 #     is_last_chunk = True
 
                 content = chunk.content
-                result += content
+
+                tags = metadata.get("tags") or chunk.response_metadata.get("tags") or []
+                message = new_text_message(content)
+
+                if Chain.WRITE_DOCUMENT in tags:
+                    # front가 이 tag로 "문서 작성 중" 청크를 구분해서 별도 탭에 렌더링함.
+                    # 채팅 말풍선에 다시 노출되면 안 되니 result엔 안 더함.
+                    message.metadata["tag"] = Chain.WRITE_DOCUMENT.value
+                else:
+                    result += content
+
                 await task_updater.update_status(
                     state=TaskState.TASK_STATE_WORKING,
-                    message=new_text_message(content),
+                    message=message,
                 )
 
         await task_updater.update_status(

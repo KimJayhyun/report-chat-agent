@@ -7,7 +7,7 @@ class Node(str, Enum):
     MAIN = "main"
     TOOL_ERROR_MESSAGE = "tool_error_message"
 
-    CREATE_DOCUMENT = "create_document"
+    WRITE_DOCUMENT = "write_document"
 
 
 class DocumentNode(str, Enum):
@@ -20,7 +20,7 @@ class Model(str, Enum):
 
 class Chain(str, Enum):
     MAIN = "main"
-    CREATE_DOCUMENT = "create_document"
+    WRITE_DOCUMENT = "write_document"
 
 
 class DocumentFormat(str, Enum):

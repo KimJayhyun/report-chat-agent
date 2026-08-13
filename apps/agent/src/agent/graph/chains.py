@@ -22,11 +22,14 @@ class LLMCollections:
         gemma4_llm = llm_dict.get(Model.GEMMA4_27B)
 
         self._chains[Chain.MAIN] = prompt_templates.main | gemma4_llm.bind_tools(
-            [tools.create_document], tool_choice="auto"
+            [tools.write_document], tool_choice="auto"
         )
-        self._chains[Chain.CREATE_DOCUMENT] = (
-            prompt_templates.create_document | gemma4_llm
-        )
+        # tags=[Chain.WRITE_DOCUMENT]를 붙여두면, graph.astream(stream_mode="messages")로
+        # 나오는 청크의 metadata["tags"]에 이 값이 실려서 executor.py가 "이 청크는
+        # 문서 작성 체인에서 나온 거다"를 구분할 수 있음 (기존 no_stream 태그랑 같은 방식).
+        self._chains[Chain.WRITE_DOCUMENT] = (
+            prompt_templates.write_document | gemma4_llm
+        ).with_config(tags=[Chain.WRITE_DOCUMENT])
 
 
 def _llm_factory(api_key: str):

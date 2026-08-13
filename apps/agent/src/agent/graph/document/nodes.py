@@ -1,11 +1,11 @@
 from agent.graph.chains import llm_collections
 from agent.graph.config import Chain, DocumentFormat
 from agent.graph.states import DocumentState
-from agent.graph.tools import CreateDocumentArgs
+from agent.graph.tools import WriteDocumentArgs
 from agent.utils import say
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
-# document 서브그래프 프롬프트(prompts/create_document.py)의 {format_guide}에
+# document 서브그래프 프롬프트(prompts/write_document.py)의 {format_guide}에
 # 꽂아넣는 텍스트. apps/web/scripts/generate-hwp-templates.mjs가 실제로 만드는
 # 템플릿 구조와 맞춤 — 여기서 안내하는 섹션 구성이 그 템플릿과 어긋나면 나중에
 # 문서 조립 단계에서 깨짐.
@@ -39,13 +39,30 @@ def get_document_format_guide(document_format: DocumentFormat | None) -> str:
     return DOCUMENT_FORMAT_GUIDE.get(document_format, DEFAULT_DOCUMENT_FORMAT_GUIDE)
 
 
+# create/edit 두 유스케이스를 tool 하나로 처리하기 위한 분기 텍스트. document_draft가
+# 있으면(=예전에 write_document를 이미 돌린 적 있으면) "기존 문서" 섹션을 프롬프트에
+# 끼워 넣어서 이번 호출을 "수정"으로 유도하고, 없으면 빈 문자열이라 프롬프트가
+# 지금처럼 "새로 작성"으로만 읽힘.
+def get_existing_document_section(document_draft: str | None) -> str:
+    if not document_draft:
+        return ""
+    return (
+        "## 0. 기존 문서 (수정 대상)\n\n"
+        '아래는 현재까지 작성된 문서입니다. "지시"에 따라 이 문서를 수정하세요. '
+        "지시와 무관한 내용은 원문 그대로 유지합니다.\n\n"
+        f"{document_draft}\n\n"
+        "---\n\n"
+    )
+
+
 async def main(state: DocumentState):
-    say("create document nodes")
+    say("write document nodes")
     messages = state.get("messages", [])
     document_format = state.get("document_format", None)
+    document_draft = state.get("document_draft", None)
 
     tool_call = state.get("tool_call", {})
-    args = CreateDocumentArgs(**tool_call.get("args", {}))
+    args = WriteDocumentArgs(**tool_call.get("args", {}))
 
     key_points_text = (
         "\n".join(f"- {point}" for point in args.key_points)
@@ -53,15 +70,20 @@ async def main(state: DocumentState):
         else "(제공된 핵심 내용 없음)"
     )
 
-    chain = llm_collections.get_chain(Chain.CREATE_DOCUMENT)
+    chain = llm_collections.get_chain(Chain.WRITE_DOCUMENT)
 
     response: AIMessage = await chain.ainvoke(
         {
             "messages": messages,
             "format_guide": get_document_format_guide(document_format),
-            "topic": args.topic,
+            "existing_document_section": get_existing_document_section(document_draft),
+            "instruction": args.instruction,
             "key_points": key_points_text,
         }
     )
 
-    return {"messages": response}
+    tool_message = ToolMessage(
+        content=response.content, tool_call_id=tool_call.get("id")
+    )
+
+    return {"messages": tool_message, "document_draft": response.content}
