@@ -70,21 +70,31 @@ interface StreamEvent {
     statusUpdate?: {
       status?: {
         state?: string;
-        message?: { parts?: { text?: string }[] };
+        message?: {
+          parts?: { text?: string }[];
+          metadata?: { tag?: string };
+        };
       };
     };
   };
   error?: { message: string };
 }
 
+// executor.py가 write_document 체인 청크에 이 값을 message.metadata.tag로 실어 보냄.
+const WRITE_DOCUMENT_TAG = "write_document";
+
 /**
  * SendStreamingMessage(SSE)로 토큰이 오는 대로 onChunk를 호출한다.
  * SendMessage(일반 요청)는 task가 TASK_STATE_COMPLETED에 도달할 때까지 기다렸다가
  * 완성된 답변을 한 번에 돌려주는 반면, 이건 각 TASK_STATE_WORKING 조각을 그때그때 전달한다.
+ *
+ * onDocumentChunk가 주어지면, write_document 태그가 붙은 청크(문서 작성 체인이
+ * 만든 본문)는 onChunk 대신 이쪽으로 라우팅된다 — 채팅 말풍선에는 안 섞인다.
  */
 export async function sendMessageStream(
   text: string,
   onChunk: (chunk: string) => void,
+  onDocumentChunk?: (chunk: string) => void,
 ): Promise<void> {
   const payload = {
     jsonrpc: "2.0",
@@ -142,7 +152,13 @@ export async function sendMessageStream(
       if (status?.state === "TASK_STATE_COMPLETED") return;
 
       const chunkText = textFromParts(status?.message?.parts);
-      if (chunkText) onChunk(chunkText);
+      if (!chunkText) continue;
+
+      if (status?.message?.metadata?.tag === WRITE_DOCUMENT_TAG) {
+        onDocumentChunk?.(chunkText);
+      } else {
+        onChunk(chunkText);
+      }
     }
   }
 }

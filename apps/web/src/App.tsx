@@ -6,6 +6,8 @@ import {
   Columns2,
   FileText,
   LayoutTemplate,
+  Loader2,
+  NotebookPen,
   PanelLeft,
   PanelRight,
   Paperclip,
@@ -13,6 +15,7 @@ import {
   Settings,
   Settings2,
   Sparkles,
+  Wand2,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
@@ -27,12 +30,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { HwpEditor } from "@/components/HwpEditor";
+import { HwpEditor, type HwpEditorHandle } from "@/components/HwpEditor";
 import { TemplateThumbnail } from "@/components/TemplateThumbnail";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { DOC_FORMATS, type DocFormat } from "@/lib/docFormats";
+import { markdownToHwpBytes } from "@/lib/markdownToHwp";
 import { cn } from "@/lib/utils";
 
 interface ChatMessage {
@@ -49,6 +53,7 @@ const SUGGESTIONS = [
 ];
 
 type ViewMode = "split" | "chat" | "editor";
+type RightTab = "draft" | "editor";
 
 function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -57,7 +62,15 @@ function App() {
   const [viewMode, setViewMode] = useState<ViewMode>("split");
   const [docFormat, setDocFormat] = useState<DocFormat | null>(null);
   const [formatPickerOpen, setFormatPickerOpen] = useState(false);
+  const [rightTab, setRightTab] = useState<RightTab>("draft");
+  const [documentDraft, setDocumentDraft] = useState("");
+  const [isConverting, setIsConverting] = useState(false);
+  const [convertError, setConvertError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const hwpEditorRef = useRef<HwpEditorHandle>(null);
+  // write_document 청크는 매 호출마다 문서 "전체"를 다시 스트리밍하므로, 이번 턴에서
+  // 첫 청크가 오면 이전 초안을 이어붙이지 않고 새로 시작해야 함.
+  const documentStartedRef = useRef(false);
 
   const handleSend = async (text = input) => {
     const trimmed = text.trim();
@@ -67,6 +80,7 @@ function App() {
     setMessages((prev) => [...prev, { role: "user", text: trimmed }, { role: "agent", text: "" }]);
     setInput("");
     setIsSending(true);
+    documentStartedRef.current = false;
 
     const appendToLastMessage = (chunk: string) => {
       setMessages((prev) => {
@@ -78,8 +92,14 @@ function App() {
       requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
     };
 
+    const appendToDocument = (chunk: string) => {
+      setDocumentDraft((prev) => (documentStartedRef.current ? prev + chunk : chunk));
+      documentStartedRef.current = true;
+      setRightTab("draft");
+    };
+
     try {
-      await sendMessageStream(trimmed, appendToLastMessage);
+      await sendMessageStream(trimmed, appendToLastMessage, appendToDocument);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setMessages((prev) => {
@@ -90,6 +110,21 @@ function App() {
     } finally {
       setIsSending(false);
       requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
+    }
+  };
+
+  const handleConvertToHwp = async () => {
+    if (!documentDraft.trim() || isConverting) return;
+    setIsConverting(true);
+    setConvertError(null);
+    try {
+      const bytes = await markdownToHwpBytes(documentDraft);
+      await hwpEditorRef.current?.loadFile(bytes, "문서초안.hwp");
+      setRightTab("editor");
+    } catch (err) {
+      setConvertError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsConverting(false);
     }
   };
 
@@ -283,14 +318,84 @@ function App() {
     </div>
   );
 
-  const editorPanel = (
-    <div className="flex h-full w-full flex-col">
+  const draftPanel = (
+    <div className={cn("flex h-full w-full flex-col", rightTab !== "draft" && "hidden")}>
+      <div className="flex items-center justify-between border-b px-4 py-2">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <FileText className="size-4 text-muted-foreground" />
+          문서 초안
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1 text-xs"
+          onClick={handleConvertToHwp}
+          disabled={!documentDraft.trim() || isConverting}
+        >
+          {isConverting ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Wand2 className="size-3.5" />
+          )}
+          한글로 변환
+        </Button>
+      </div>
+      <ScrollArea className="flex-1">
+        {documentDraft ? (
+          <div className="prose prose-sm max-w-none p-4 prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-headings:my-1.5">
+            <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+              {documentDraft}
+            </ReactMarkdown>
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
+            대화에서 문서 작성을 요청하면 여기에 초안이 실시간으로 표시됩니다.
+          </div>
+        )}
+      </ScrollArea>
+      {convertError && (
+        <p className="border-t px-4 py-2 text-xs text-destructive">{convertError}</p>
+      )}
+    </div>
+  );
+
+  const hwpPanel = (
+    <div className={cn("flex h-full w-full flex-col", rightTab !== "editor" && "hidden")}>
       <div className="flex items-center gap-2 border-b px-4 py-2 text-sm font-medium">
-        <FileText className="size-4 text-muted-foreground" />
-        한글 문서
+        <NotebookPen className="size-4 text-muted-foreground" />
+        한글 편집기
       </div>
       <div className="flex-1 overflow-hidden">
-        <HwpEditor className="h-full w-full" />
+        <HwpEditor ref={hwpEditorRef} className="h-full w-full" />
+      </div>
+    </div>
+  );
+
+  const rightPanel = (
+    <div className="flex h-full w-full flex-col">
+      <div className="flex items-center gap-1 border-b bg-muted/30 px-2 py-1">
+        <Button
+          variant={rightTab === "draft" ? "secondary" : "ghost"}
+          size="sm"
+          className="h-6 gap-1 px-2 text-xs"
+          onClick={() => setRightTab("draft")}
+        >
+          <FileText className="size-3.5" />
+          문서 초안
+        </Button>
+        <Button
+          variant={rightTab === "editor" ? "secondary" : "ghost"}
+          size="sm"
+          className="h-6 gap-1 px-2 text-xs"
+          onClick={() => setRightTab("editor")}
+        >
+          <NotebookPen className="size-3.5" />
+          한글 편집기
+        </Button>
+      </div>
+      <div className="flex-1 overflow-hidden">
+        {draftPanel}
+        {hwpPanel}
       </div>
     </div>
   );
@@ -342,12 +447,12 @@ function App() {
               {chatPanel}
             </ResizablePanel>
             <ResizableHandle withHandle />
-            <ResizablePanel id="editor">{editorPanel}</ResizablePanel>
+            <ResizablePanel id="editor">{rightPanel}</ResizablePanel>
           </ResizablePanelGroup>
         )}
         {viewMode === "chat" && <div className="h-full w-full">{chatPanel}</div>}
         {viewMode === "editor" && (
-          <div className="h-full w-full">{editorPanel}</div>
+          <div className="h-full w-full">{rightPanel}</div>
         )}
       </div>
     </div>

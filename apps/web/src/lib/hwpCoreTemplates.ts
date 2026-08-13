@@ -21,7 +21,9 @@ globalThis.measureTextWidth = (font, text) => {
 
 let initPromise: Promise<void> | null = null;
 
-function ensureInit(): Promise<void> {
+// markdownToHwp.ts에서도 재사용 — @rhwp/core wasm init은 한 번만 해야 하므로 이 모듈이
+// 그 유일한 진입점 역할을 함.
+export function ensureInit(): Promise<void> {
   if (!initPromise) {
     initPromise = init({ module_or_path: wasmUrl }).then(() => undefined);
   }
