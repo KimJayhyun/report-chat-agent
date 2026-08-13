@@ -20,6 +20,7 @@ class Model(str, Enum):
 
 class Chain(str, Enum):
     MAIN = "main"
+    CREATE_REPORT = "create_report"
 
 
 class ReportFormat(str, Enum):

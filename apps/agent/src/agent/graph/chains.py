@@ -24,6 +24,7 @@ class LLMCollections:
         self._chains[Chain.MAIN] = prompt_templates.main | gemma4_llm.bind_tools(
             [tools.create_report], tool_choice="auto"
         )
+        self._chains[Chain.CREATE_REPORT] = prompt_templates.create_report | gemma4_llm
 
 
 def _llm_factory(api_key: str):

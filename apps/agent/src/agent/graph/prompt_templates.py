@@ -8,3 +8,10 @@ main = ChatPromptTemplate.from_messages(
         MessagesPlaceholder(variable_name="messages"),
     ]
 )
+
+create_report = ChatPromptTemplate.from_messages(
+    [
+        ("system", prompts.create_report.instruction),
+        MessagesPlaceholder(variable_name="messages"),
+    ]
+)
