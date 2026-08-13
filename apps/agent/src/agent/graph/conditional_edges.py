@@ -1,0 +1,73 @@
+from agent.graph import tools
+from agent.graph.config import MAX_RETRY_TOOL_CALLS, TOOL_ERROR_MESSAGE, Node, ToolError
+from agent.graph.states import MainState
+from langchain_core.messages import ToolMessage
+from langgraph.constants import END
+from langgraph.types import Send
+
+
+def route_by_tool_calls(state: MainState):
+    tool_calls = state.get("tool_calls", [])
+
+    if not tool_calls:
+        return END
+
+    tool_count = state.get("tool_count", 0)
+
+    next_nodes = []
+    if tool_count < MAX_RETRY_TOOL_CALLS:
+        # tool_calls = [
+        #     {
+        #         "id": "test",
+        #         "name": "test_tool",
+        #         "args": {
+        #             "topic": "test_topic",
+        #             "key_points": ["test_point1", "test_point2"],
+        #         },
+        #     }
+        # ]
+        for tool_call in tool_calls:
+            tool_name = tool_call.get("name")
+
+            if tool_name == tools.create_report.get_name():
+                next_nodes.append(
+                    Send(
+                        Node.CREATE_REPORT,
+                        {"tool_call": tool_call}
+                        | {
+                            k: v
+                            for k, v in state.items()
+                            if k not in ["tool_calls", "tool_count"]
+                        },
+                    )
+                )
+            else:
+                next_nodes.append(
+                    Send(
+                        Node.TOOL_ERROR_MESSAGE,
+                        {
+                            "error_message": ToolMessage(
+                                content=TOOL_ERROR_MESSAGE[ToolError.MISSING].format(
+                                    tool_name=tool_name
+                                ),
+                                tool_call_id=tool_call.get("id"),
+                            )
+                        },
+                    )
+                )
+
+    else:
+        for tool_call in tool_calls:
+            next_nodes.append(
+                Send(
+                    Node.TOOL_ERROR_MESSAGE,
+                    {
+                        "error_message": ToolMessage(
+                            content=TOOL_ERROR_MESSAGE[ToolError.MAX_RETRY_EXCEEDED],
+                            tool_call_id=tool_call.get("id"),
+                        )
+                    },
+                )
+            )
+
+    return next_nodes

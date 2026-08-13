@@ -1,5 +1,5 @@
 import httpx
-from agent.graph import prompt_templates
+from agent.graph import prompt_templates, tools
 from agent.graph.config import Chain, Model
 from agent.properties import LM_STUDIO_BASE_URL
 from langchain_openai import ChatOpenAI
@@ -21,7 +21,9 @@ class LLMCollections:
     def set_chains(self, llm_dict):
         gemma4_llm = llm_dict.get(Model.GEMMA4_27B)
 
-        self._chains[Chain.MAIN] = prompt_templates.main | gemma4_llm
+        self._chains[Chain.MAIN] = prompt_templates.main | gemma4_llm.bind_tools(
+            [tools.create_report], tool_choice="auto"
+        )
 
 
 def _llm_factory(api_key: str):
