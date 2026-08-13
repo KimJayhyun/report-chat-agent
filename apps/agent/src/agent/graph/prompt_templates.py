@@ -9,9 +9,9 @@ main = ChatPromptTemplate.from_messages(
     ]
 )
 
-create_report = ChatPromptTemplate.from_messages(
+create_document = ChatPromptTemplate.from_messages(
     [
-        ("system", prompts.create_report.instruction),
+        ("system", prompts.create_document.instruction),
         MessagesPlaceholder(variable_name="messages"),
     ]
 )

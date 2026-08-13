@@ -29,10 +29,10 @@ def route_by_tool_calls(state: MainState):
         for tool_call in tool_calls:
             tool_name = tool_call.get("name")
 
-            if tool_name == tools.create_report.get_name():
+            if tool_name == tools.create_document.get_name():
                 next_nodes.append(
                     Send(
-                        Node.CREATE_REPORT,
+                        Node.CREATE_DOCUMENT,
                         {"tool_call": tool_call}
                         | {
                             k: v

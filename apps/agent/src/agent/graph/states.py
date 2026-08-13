@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from agent.graph.config import ReportFormat
+from agent.graph.config import DocumentFormat
 from langchain_core.messages import AnyMessage, ToolMessage
 from langgraph.graph.message import add_messages
 from typing_extensions import NotRequired, TypedDict
@@ -14,7 +14,7 @@ class BaseState(TypedDict):
     query: Annotated[str, keep_value]
     messages: Annotated[list[AnyMessage], add_messages]
 
-    report_format: Annotated[ReportFormat | None, keep_value]
+    document_format: Annotated[DocumentFormat | None, keep_value]
 
 
 class MainState(BaseState):
@@ -22,7 +22,7 @@ class MainState(BaseState):
     tool_count: int = 0
 
 
-class ReportState(BaseState):
+class DocumentState(BaseState):
     tool_call: dict
 
 

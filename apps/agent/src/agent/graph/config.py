@@ -7,10 +7,10 @@ class Node(str, Enum):
     MAIN = "main"
     TOOL_ERROR_MESSAGE = "tool_error_message"
 
-    CREATE_REPORT = "create_report"
+    CREATE_DOCUMENT = "create_document"
 
 
-class ReportNode(str, Enum):
+class DocumentNode(str, Enum):
     MAIN = "main"
 
 
@@ -20,10 +20,10 @@ class Model(str, Enum):
 
 class Chain(str, Enum):
     MAIN = "main"
-    CREATE_REPORT = "create_report"
+    CREATE_DOCUMENT = "create_document"
 
 
-class ReportFormat(str, Enum):
+class DocumentFormat(str, Enum):
     """apps/web/src/lib/docFormats.tsx의 DOC_FORMATS id와 값을 맞춤."""
 
     PLANNING_REPORT = "planning-report"

@@ -22,9 +22,11 @@ class LLMCollections:
         gemma4_llm = llm_dict.get(Model.GEMMA4_27B)
 
         self._chains[Chain.MAIN] = prompt_templates.main | gemma4_llm.bind_tools(
-            [tools.create_report], tool_choice="auto"
+            [tools.create_document], tool_choice="auto"
         )
-        self._chains[Chain.CREATE_REPORT] = prompt_templates.create_report | gemma4_llm
+        self._chains[Chain.CREATE_DOCUMENT] = (
+            prompt_templates.create_document | gemma4_llm
+        )
 
 
 def _llm_factory(api_key: str):
