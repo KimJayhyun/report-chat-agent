@@ -71,6 +71,9 @@ function App() {
   // write_document 청크는 매 호출마다 문서 "전체"를 다시 스트리밍하므로, 이번 턴에서
   // 첫 청크가 오면 이전 초안을 이어붙이지 않고 새로 시작해야 함.
   const documentStartedRef = useRef(false);
+  // 백엔드 thread_id로 그대로 쓰이는 A2A context_id — 첫 턴은 없으니 서버가 새로
+  // 발급하고, 이후 턴부터는 이걸 그대로 실어 보내야 같은 대화(멀티턴)로 이어짐.
+  const contextIdRef = useRef<string | undefined>(undefined);
 
   const handleSend = async (text = input) => {
     const trimmed = text.trim();
@@ -99,7 +102,12 @@ function App() {
     };
 
     try {
-      await sendMessageStream(trimmed, appendToLastMessage, appendToDocument);
+      contextIdRef.current = await sendMessageStream(
+        trimmed,
+        appendToLastMessage,
+        appendToDocument,
+        contextIdRef.current,
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setMessages((prev) => {

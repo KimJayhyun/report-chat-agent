@@ -67,7 +67,11 @@ export async function sendMessage(text: string): Promise<string> {
 
 interface StreamEvent {
   result?: {
+    // 스트림의 첫 이벤트(TASK_STATE_SUBMITTED 전, task 최초 생성) — contextId가 여기서만 옴.
+    task?: { contextId?: string };
     statusUpdate?: {
+      // status 안이 아니라 statusUpdate와 형제 필드로 옴.
+      contextId?: string;
       status?: {
         state?: string;
         message?: {
@@ -90,12 +94,17 @@ const WRITE_DOCUMENT_TAG = "write_document";
  *
  * onDocumentChunk가 주어지면, write_document 태그가 붙은 청크(문서 작성 체인이
  * 만든 본문)는 onChunk 대신 이쪽으로 라우팅된다 — 채팅 말풍선에는 안 섞인다.
+ *
+ * contextId를 넘기면 백엔드가 같은 대화(스레드)로 이어붙여서 멀티턴이 된다 — 첫
+ * 호출은 넘길 게 없으니 생략하면 서버가 새로 발급하고, 반환값으로 그 값을 돌려주니
+ * 다음 호출부터는 그걸 그대로 넘기면 됨.
  */
 export async function sendMessageStream(
   text: string,
   onChunk: (chunk: string) => void,
   onDocumentChunk?: (chunk: string) => void,
-): Promise<void> {
+  contextId?: string,
+): Promise<string | undefined> {
   const payload = {
     jsonrpc: "2.0",
     id: crypto.randomUUID(),
@@ -105,6 +114,7 @@ export async function sendMessageStream(
         messageId: crypto.randomUUID(),
         role: "ROLE_USER",
         parts: [{ text }],
+        ...(contextId ? { contextId } : {}),
       },
     },
   };
@@ -126,6 +136,7 @@ export async function sendMessageStream(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let observedContextId = contextId;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -145,11 +156,14 @@ export async function sendMessageStream(
         throw new Error(event.error.message);
       }
 
+      observedContextId =
+        event.result?.task?.contextId ?? event.result?.statusUpdate?.contextId ?? observedContextId;
+
       const status = event.result?.statusUpdate?.status;
 
       // TASK_STATE_COMPLETED의 message는 새 조각이 아니라 지금까지 누적된
       // 전체 텍스트를 다시 담고 있음 — onChunk로 또 이어붙이면 중복됨.
-      if (status?.state === "TASK_STATE_COMPLETED") return;
+      if (status?.state === "TASK_STATE_COMPLETED") return observedContextId;
 
       const chunkText = textFromParts(status?.message?.parts);
       if (!chunkText) continue;
@@ -161,4 +175,6 @@ export async function sendMessageStream(
       }
     }
   }
+
+  return observedContextId;
 }
