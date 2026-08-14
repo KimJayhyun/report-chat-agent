@@ -5,6 +5,7 @@ from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import Message, Part, Role, SendMessageRequest, TaskState
 from agent.agent_card import build_agent_card
 from agent.executor import ReportChatAgentExecutor
+from agent.graph.graph import build_graph
 
 
 @pytest.fixture
@@ -13,8 +14,12 @@ def handler() -> DefaultRequestHandler:
     동일한 요청 처리 경로(RequestContext/EventQueue 생성 포함)를 그대로 재사용.
     """
     agent_card = build_agent_card(url="http://127.0.0.1:9999")
+    executor = ReportChatAgentExecutor()
+    # checkpointer 없이(None) 그래프를 붙임 — 이 테스트는 단발성 응답만 확인하면
+    # 되고, Postgres까지 띄우게 하고 싶지 않아서.
+    executor.set_graph(build_graph())
     return DefaultRequestHandler(
-        agent_executor=ReportChatAgentExecutor(),
+        agent_executor=executor,
         task_store=InMemoryTaskStore(),
         agent_card=agent_card,
     )

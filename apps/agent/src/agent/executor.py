@@ -11,7 +11,6 @@ from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
 from a2a.types import TaskState
 from agent.graph.config import Chain, Tag
-from agent.graph.graph import graph
 from agent.graph.states import BaseState
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
@@ -22,7 +21,19 @@ class ReportChatAgentExecutor(AgentExecutor):
     Replace the body of `execute` with the agent's real behavior.
     """
 
+    def __init__(self) -> None:
+        # 서버 기동 시점(lifespan)에 Postgres checkpointer까지 물려서 build_graph()로
+        # 만들어진 뒤 set_graph()로 주입됨 — AsyncPostgresSaver 생성 자체가 비동기라
+        # 이 생성자(동기)에서 바로 그래프를 만들 수 없어서 이렇게 나눔.
+        self._graph = None
+
+    def set_graph(self, graph) -> None:
+        self._graph = graph
+
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
+        if self._graph is None:
+            raise RuntimeError("Graph is not initialized — set_graph()을 먼저 호출하세요.")
+
         task = context.current_task
         if task is None:
             task = new_task_from_user_message(context.message)
@@ -37,11 +48,14 @@ class ReportChatAgentExecutor(AgentExecutor):
         state = BaseState(query=query, messages=[HumanMessage(content=query)])
 
         result = ""
-        async for event in graph.astream(
+        async for event in self._graph.astream(
             state,
             stream_mode=["messages", "values", "custom"],
             subgraphs=True,
-            config={},
+            # thread_id로 A2A의 context_id를 그대로 씀 — 같은 대화(context_id)면
+            # checkpointer가 이전 turn의 상태(messages, document_draft 등)를 이어붙여줘서
+            # 멀티턴이 됨.
+            config={"configurable": {"thread_id": task.context_id}},
         ):
             _namespace, kind, data = event
 
