@@ -1,4 +1,24 @@
 services:
+  litellm:
+    # main-stable(현재 arm64 네이티브 빌드)이 Apple Silicon + Colima(vz)에서 SIGILL로
+    # 즉시 죽는 걸 확인함 — amd64 빌드만 있는 이 버전 태그가 Rosetta 에뮬레이션으로
+    # 정상 동작해서 이걸로 고정. 나중에 main-stable이 고쳐지면 되돌려도 됨.
+    image: ghcr.io/berriai/litellm:main-v1.23.9
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-litellm-dev}
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    # LM Studio가 컨테이너가 아니라 macOS 호스트에서 떠 있어서, 컨테이너 안에서
+    # host.docker.internal로 호스트를 찾을 수 있게 해줘야 함(Linux 계열 docker에서도
+    # 동작하도록 명시).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   postgres:
     image: postgres:16
     restart: unless-stopped

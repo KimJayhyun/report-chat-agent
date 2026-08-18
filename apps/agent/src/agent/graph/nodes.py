@@ -1,5 +1,5 @@
 from agent.graph.chains import llm_collections
-from agent.graph.config import Chain
+from agent.graph.config import DEFAULT_MODEL, Chain
 from agent.graph.states import MainState, ToolErrorState
 from agent.utils import say
 from langchain_core.messages import AIMessage
@@ -9,8 +9,9 @@ async def main(state: MainState):
     messages = state.get("messages", [])
     query = state.get("query", "")
     tool_count = state.get("tool_count", 0)
+    model = state.get("model") or DEFAULT_MODEL
 
-    chain = llm_collections.get_chain(Chain.MAIN)
+    chain = llm_collections.get_chain(Chain.MAIN, model)
 
     response: AIMessage = await chain.ainvoke({"messages": messages, "query": query})
 

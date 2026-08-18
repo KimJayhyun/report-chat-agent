@@ -14,8 +14,10 @@ class DocumentNode(str, Enum):
     MAIN = "main"
 
 
-class Model(str, Enum):
-    GEMMA4_27B = "gemma4-27b-a4b-it"
+# litellm-config.yaml의 model_list에 등록된 model_name 중 하나. 사용자가 채팅
+# UI에서 모델을 고르지 않았을 때(첫 turn 등) 쓰는 기본값 — 실제 선택 가능한 모델
+# 목록은 이 상수가 아니라 litellm 쪽(및 GET /models)이 근거지다.
+DEFAULT_MODEL = "gemma4-27b-a4b-it"
 
 
 class Chain(str, Enum):

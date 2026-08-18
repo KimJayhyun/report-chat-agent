@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowDown,
   ChevronLeft,
   ChevronRight,
   Columns2,
+  Cpu,
   FileText,
   LayoutTemplate,
   Loader2,
@@ -20,7 +21,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import { sendMessageStream } from "@/lib/a2aClient";
+import { listModels, sendMessageStream } from "@/lib/a2aClient";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { HwpEditor, type HwpEditorHandle } from "@/components/HwpEditor";
 import { TemplateThumbnail } from "@/components/TemplateThumbnail";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -66,6 +74,8 @@ function App() {
   const [documentDraft, setDocumentDraft] = useState("");
   const [isConverting, setIsConverting] = useState(false);
   const [convertError, setConvertError] = useState<string | null>(null);
+  const [models, setModels] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined);
   const bottomRef = useRef<HTMLDivElement>(null);
   const hwpEditorRef = useRef<HwpEditorHandle>(null);
   // write_document 청크는 매 호출마다 문서 "전체"를 다시 스트리밍하므로, 이번 턴에서
@@ -74,6 +84,18 @@ function App() {
   // 백엔드 thread_id로 그대로 쓰이는 A2A context_id — 첫 턴은 없으니 서버가 새로
   // 발급하고, 이후 턴부터는 이걸 그대로 실어 보내야 같은 대화(멀티턴)로 이어짐.
   const contextIdRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    // 모델 목록은 litellm-config.yaml이 유일한 출처라 여기선 하드코딩하지 않고
+    // agent를 통해 조회한다. 실패해도(예: litellm이 아직 안 떠 있음) 앱 자체는
+    // 계속 쓸 수 있어야 하니 조용히 무시 — 이 경우 서버 기본 모델로 동작한다.
+    listModels()
+      .then((fetched) => {
+        setModels(fetched);
+        setSelectedModel((prev) => prev ?? fetched[0]);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSend = async (text = input) => {
     const trimmed = text.trim();
@@ -102,12 +124,12 @@ function App() {
     };
 
     try {
-      contextIdRef.current = await sendMessageStream(
-        trimmed,
-        appendToLastMessage,
-        appendToDocument,
-        contextIdRef.current,
-      );
+      contextIdRef.current = await sendMessageStream(trimmed, {
+        onChunk: appendToLastMessage,
+        onDocumentChunk: appendToDocument,
+        contextId: contextIdRef.current,
+        model: selectedModel,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setMessages((prev) => {
@@ -176,6 +198,24 @@ function App() {
           <LayoutTemplate className="size-3" />
           {docFormat ? docFormat.name : "문서서식 선택"}
         </Button>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" disabled={models.length === 0}>
+              <Cpu className="size-3" />
+              {selectedModel ?? "모델 선택"}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuRadioGroup value={selectedModel} onValueChange={setSelectedModel}>
+              {models.map((model) => (
+                <DropdownMenuRadioItem key={model} value={model}>
+                  {model}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <Dialog open={formatPickerOpen} onOpenChange={setFormatPickerOpen}>
           <DialogContent className="sm:max-w-4xl">

@@ -23,6 +23,11 @@ class BaseState(TypedDict):
     query: Annotated[str, keep_value]
     messages: Annotated[list[AnyMessage], add_messages]
 
+    # 채팅 UI에서 사용자가 고른 litellm 모델 이름. keep_value가 아니라
+    # keep_latest_value를 쓰는 이유: document_format(한 번 정하면 대화 내내 고정)과
+    # 달리, 사용자가 다음 turn에 모델을 바꿔서 보내면 그걸 바로 반영해야 함.
+    model: Annotated[str, keep_latest_value]
+
     document_format: Annotated[DocumentFormat | None, keep_value]
     # write_document가 만든 최신 문서 본문. 다음 write_document 호출 때 "기존
     # 문서"로 프롬프트에 들어가서, tool을 다시 안 만들어도 수정 요청을 처리할 수

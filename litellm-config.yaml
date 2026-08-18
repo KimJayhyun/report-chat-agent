@@ -1,0 +1,10 @@
+model_list:
+  - model_name: gemma4-27b-a4b-it
+    litellm_params:
+      model: openai/gemma4-27b-a4b-it
+      # LiteLLM 컨테이너 안에서 macOS 호스트에 떠 있는 LM Studio를 가리킴.
+      api_base: http://host.docker.internal:1234/v1
+      api_key: lm-studio
+
+litellm_settings:
+  drop_params: true

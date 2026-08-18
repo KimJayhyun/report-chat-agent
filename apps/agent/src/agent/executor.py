@@ -10,7 +10,7 @@ from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
 from a2a.types import TaskState
-from agent.graph.config import Chain, Tag
+from agent.graph.config import DEFAULT_MODEL, Chain, Tag
 from agent.graph.states import BaseState
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
@@ -45,7 +45,17 @@ class ReportChatAgentExecutor(AgentExecutor):
 
         query = get_message_text(context.message)
 
-        state = BaseState(query=query, messages=[HumanMessage(content=query)])
+        # message.metadata는 google.protobuf.Struct라 .get()이 없어서 in으로 확인.
+        incoming_metadata = context.message.metadata
+        model = (
+            incoming_metadata["model"]
+            if incoming_metadata and "model" in incoming_metadata
+            else DEFAULT_MODEL
+        )
+
+        state = BaseState(
+            query=query, messages=[HumanMessage(content=query)], model=model
+        )
 
         result = ""
         async for event in self._graph.astream(

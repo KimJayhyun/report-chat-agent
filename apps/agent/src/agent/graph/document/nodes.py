@@ -1,5 +1,5 @@
 from agent.graph.chains import llm_collections
-from agent.graph.config import Chain, DocumentFormat, Tag
+from agent.graph.config import DEFAULT_MODEL, Chain, DocumentFormat, Tag
 from agent.graph.states import DocumentState
 from agent.graph.tools import WriteDocumentArgs
 from agent.utils import say
@@ -63,6 +63,7 @@ async def main(state: DocumentState):
 
     tool_call = state.get("tool_call", {})
     args = WriteDocumentArgs(**tool_call.get("args", {}))
+    model = state.get("model") or DEFAULT_MODEL
 
     key_points_text = (
         "\n".join(f"- {point}" for point in args.key_points)
@@ -70,7 +71,7 @@ async def main(state: DocumentState):
         else "(제공된 핵심 내용 없음)"
     )
 
-    chain = llm_collections.get_chain(Chain.WRITE_DOCUMENT)
+    chain = llm_collections.get_chain(Chain.WRITE_DOCUMENT, model)
 
     response: AIMessage = await chain.ainvoke(
         {

@@ -1,54 +1,51 @@
 import httpx
 from agent.graph import prompt_templates, tools
-from agent.graph.config import Chain, Model
-from agent.properties import LM_STUDIO_BASE_URL
+from agent.graph.config import Chain, DEFAULT_MODEL
+from agent.properties import LITELLM_BASE_URL, LITELLM_MASTER_KEY
 from langchain_openai import ChatOpenAI
 
 
 class LLMCollections:
+    """모델별 세부 설정(api_base, extra_body, stop 토큰 등)은 전부 litellm-config.yaml
+    쪽 책임이라, 여기서 아는 건 "litellm proxy가 이 model 이름을 안다" 뿐이다 — 그래서
+    모델을 미리 정해진 목록으로 두지 않고, 요청 시점에 받은 model 문자열로 그때그때
+    ChatOpenAI를 만든다(모델당 한 번만 만들어서 재사용).
+    """
+
     def __init__(self):
-        self._chains = {}
+        self._llm_cache: dict[str, ChatOpenAI] = {}
 
-        llm_dict = _llm_factory(api_key="lm-studio")
-        self.set_chains(llm_dict)
+    def _get_llm(self, model: str) -> ChatOpenAI:
+        if model not in self._llm_cache:
+            self._llm_cache[model] = _build_llm(model)
+        return self._llm_cache[model]
 
-    def get_chain(self, name: str):
-        if name not in self._chains:
-            raise ValueError(f"Chain '{name}' not found")
+    def get_chain(self, name: str, model: str = DEFAULT_MODEL):
+        llm = self._get_llm(model)
 
-        return self._chains.get(name)
+        if name == Chain.MAIN:
+            return prompt_templates.main | llm.bind_tools(
+                [tools.write_document], tool_choice="auto"
+            )
+        if name == Chain.WRITE_DOCUMENT:
+            return prompt_templates.write_document | llm
 
-    def set_chains(self, llm_dict):
-        gemma4_llm = llm_dict.get(Model.GEMMA4_27B)
-
-        self._chains[Chain.MAIN] = prompt_templates.main | gemma4_llm.bind_tools(
-            [tools.write_document], tool_choice="auto"
-        )
-        # tags=[Chain.WRITE_DOCUMENT]를 붙여두면, graph.astream(stream_mode="messages")로
-        # 나오는 청크의 metadata["tags"]에 이 값이 실려서 executor.py가 "이 청크는
-        # 문서 작성 체인에서 나온 거다"를 구분할 수 있음 (기존 no_stream 태그랑 같은 방식).
-        self._chains[Chain.WRITE_DOCUMENT] = (
-            prompt_templates.write_document | gemma4_llm
-        )
+        raise ValueError(f"Chain '{name}' not found")
 
 
-def _llm_factory(api_key: str):
+def _build_llm(model: str) -> ChatOpenAI:
     httpx_client = httpx.Client(verify=False)
     httpx_async_client = httpx.AsyncClient(verify=False)
 
-    gemma4_llm = ChatOpenAI(
-        base_url=LM_STUDIO_BASE_URL,
-        model=Model.GEMMA4_27B,
+    return ChatOpenAI(
+        base_url=LITELLM_BASE_URL,
+        model=model,
         streaming=True,
-        api_key=api_key,
+        api_key=LITELLM_MASTER_KEY,
         max_tokens=8192,
         http_client=httpx_client,
         http_async_client=httpx_async_client,
     )
-
-    return {
-        Model.GEMMA4_27B: gemma4_llm,
-    }
 
 
 llm_collections = LLMCollections()
