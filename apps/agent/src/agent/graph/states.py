@@ -34,6 +34,11 @@ class BaseState(TypedDict):
     # 있게 해줌 (create/edit 두 유스케이스를 이 필드 하나로 구분).
     document_draft: Annotated[str | None, keep_latest_value]
 
+    # MAIN이 이번 턴에 LLM을 부르기 직전 litellm에서 조회한 MCP tool 목록
+    # (mcp_tools.list_mcp_tools() 결과 그대로) — MAIN이 이미 한 번 조회했으니
+    # conditional_edges/MCP_TOOL 노드가 같은 턴 안에서 또 조회하지 않고 재사용한다.
+    mcp_tools: Annotated[list[dict], keep_latest_value]
+
 
 class MainState(BaseState):
     tool_calls: list[dict]  # tool_calls는 항상 존재해야 함
@@ -41,6 +46,10 @@ class MainState(BaseState):
 
 
 class DocumentState(BaseState):
+    tool_call: dict
+
+
+class McpToolState(BaseState):
     tool_call: dict
 
 

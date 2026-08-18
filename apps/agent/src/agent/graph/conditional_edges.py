@@ -13,6 +13,7 @@ def route_by_tool_calls(state: MainState):
         return END
 
     tool_count = state.get("tool_count", 0)
+    mcp_tool_names = {tool["name"] for tool in state.get("mcp_tools", [])}
 
     next_nodes = []
     if tool_count < MAX_RETRY_TOOL_CALLS:
@@ -28,18 +29,17 @@ def route_by_tool_calls(state: MainState):
         # ]
         for tool_call in tool_calls:
             tool_name = tool_call.get("name")
+            rest_of_state = {
+                k: v for k, v in state.items() if k not in ["tool_calls", "tool_count"]
+            }
 
             if tool_name == tools.write_document.get_name():
                 next_nodes.append(
-                    Send(
-                        Node.WRITE_DOCUMENT,
-                        {"tool_call": tool_call}
-                        | {
-                            k: v
-                            for k, v in state.items()
-                            if k not in ["tool_calls", "tool_count"]
-                        },
-                    )
+                    Send(Node.WRITE_DOCUMENT, {"tool_call": tool_call} | rest_of_state)
+                )
+            elif tool_name in mcp_tool_names:
+                next_nodes.append(
+                    Send(Node.MCP_TOOL, {"tool_call": tool_call} | rest_of_state)
                 )
             else:
                 next_nodes.append(

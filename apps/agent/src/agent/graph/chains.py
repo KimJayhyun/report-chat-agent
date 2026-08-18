@@ -20,12 +20,15 @@ class LLMCollections:
             self._llm_cache[model] = _build_llm(model)
         return self._llm_cache[model]
 
-    def get_chain(self, name: str, model: str = DEFAULT_MODEL):
+    def get_chain(self, name: str, model: str = DEFAULT_MODEL, extra_tools: list[dict] | None = None):
         llm = self._get_llm(model)
 
         if name == Chain.MAIN:
+            # extra_tools(MCP tool의 OpenAI function-calling 스키마)는 매 요청마다
+            # litellm에서 새로 조회한 걸 그대로 받는다 — write_document처럼 캐싱하지
+            # 않음, 그래야 UI에서 방금 등록한 MCP 서버도 다음 턴부터 바로 보임.
             return prompt_templates.main | llm.bind_tools(
-                [tools.write_document], tool_choice="auto"
+                [tools.write_document, *(extra_tools or [])], tool_choice="auto"
             )
         if name == Chain.WRITE_DOCUMENT:
             return prompt_templates.write_document | llm

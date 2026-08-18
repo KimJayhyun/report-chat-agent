@@ -8,6 +8,7 @@ class Node(str, Enum):
     TOOL_ERROR_MESSAGE = "tool_error_message"
 
     WRITE_DOCUMENT = "write_document"
+    MCP_TOOL = "mcp_tool"
 
 
 class DocumentNode(str, Enum):

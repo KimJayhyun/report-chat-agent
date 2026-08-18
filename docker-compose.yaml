@@ -1,13 +1,23 @@
 services:
   litellm:
-    # main-stable(현재 arm64 네이티브 빌드)이 Apple Silicon + Colima(vz)에서 SIGILL로
-    # 즉시 죽는 걸 확인함 — amd64 빌드만 있는 이 버전 태그가 Rosetta 에뮬레이션으로
-    # 정상 동작해서 이걸로 고정. 나중에 main-stable이 고쳐지면 되돌려도 됨.
-    image: ghcr.io/berriai/litellm:main-v1.23.9
+    # main-stable(arm64 네이티브 빌드)이 Apple Silicon + Colima(vz)에서 SIGILL로 즉시
+    # 죽는 걸 확인함 — amd64 빌드만 있는 버전 태그가 Rosetta 에뮬레이션으로 정상 동작해서
+    # 이걸로 고정. MCP 서버 등록(DB 필요)을 쓰려면 Prisma client가 이미 생성돼 있는
+    # "-database" 이미지가 필요함 — 일반 litellm 이미지는 컨테이너 안에서 런타임에
+    # Prisma CLI를 설치하려다 실패함(Node용 libatomic.so.1이 이 에뮬레이션 환경엔 없음).
+    # v1.26대는 MCP 관련 엔드포인트가 아예 없어서(너무 오래된 버전) v1.83로 올림 —
+    # MCP naming 규칙(SEP-986)도 이 버전대부터 적용돼 있어 서버 이름에 "-"를 못 씀.
+    image: ghcr.io/berriai/litellm-database:main-v1.83.14-stable
     platform: linux/amd64
     restart: unless-stopped
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-litellm-dev}
+      # MCP 서버 등록(UI 포함)을 영구 저장하려면 DB가 필수. agent의 checkpointer랑
+      # 같은 postgres "인스턴스"는 공유하되 DB는 반드시 분리한다 — litellm은 Prisma로
+      # 스키마를 통째로 관리해서, 같은 DB를 쓰면 마이그레이션이 agent 테이블까지
+      # "자기가 모르는 테이블"로 보고 지워버림 (실제로 한 번 겪음, postgres-init 참고).
+      DATABASE_URL: postgresql://agent:agent@postgres:5432/litellm
+      STORE_MODEL_IN_DB: "True"
     ports:
       - "4000:4000"
     volumes:
@@ -18,6 +28,9 @@ services:
     # 동작하도록 명시).
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   postgres:
     image: postgres:16
@@ -30,6 +43,9 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # 컨테이너가 처음 초기화될 때만 실행됨 — litellm이 쓸 별도 DB를 만들어둠
+      # (이미 존재하는 볼륨엔 영향 없음, 새로 파는 환경에서만 자동 적용됨).
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U agent"]
       interval: 5s

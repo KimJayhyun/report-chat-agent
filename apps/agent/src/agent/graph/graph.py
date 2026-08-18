@@ -28,11 +28,13 @@ def build_graph(checkpointer=None):
     builder.add_node(Node.MAIN, nodes.main)
     builder.add_node(Node.TOOL_ERROR_MESSAGE, nodes.tool_error_message)
     builder.add_node(Node.WRITE_DOCUMENT, document_subgraph())
+    builder.add_node(Node.MCP_TOOL, nodes.mcp_tool)
 
     builder.add_edge(START, Node.MAIN)
     builder.add_conditional_edges(Node.MAIN, conditional_edges.route_by_tool_calls)
 
     builder.add_edge(Node.WRITE_DOCUMENT, Node.MAIN)
+    builder.add_edge(Node.MCP_TOOL, Node.MAIN)
     builder.add_edge(Node.TOOL_ERROR_MESSAGE, Node.MAIN)
 
     builder.add_edge(Node.MAIN, END)
