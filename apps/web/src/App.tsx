@@ -21,7 +21,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import { listModels, sendMessageStream } from "@/lib/a2aClient";
+import { SendMessageStreamError, listModels, sendMessageStream } from "@/lib/a2aClient";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -131,6 +131,11 @@ function App() {
         model: selectedModel,
       });
     } catch (err) {
+      // 스트림이 도중에 끊겨도 서버가 이미 발급한 contextId는 살려서 이어감 —
+      // 안 그러면 다음 메시지가 (실패한 턴과) 다른 새 대화로 갈라짐.
+      if (err instanceof SendMessageStreamError && err.contextId) {
+        contextIdRef.current = err.contextId;
+      }
       const message = err instanceof Error ? err.message : String(err);
       setMessages((prev) => {
         const next = [...prev];
@@ -141,6 +146,24 @@ function App() {
       setIsSending(false);
       requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
     }
+  };
+
+  const handleNewConversation = () => {
+    // 스트리밍 도중이면 이전 handleSend의 콜백(appendToLastMessage 등)이 그 클로저에
+    // 잡아둔 옛 state 그대로 계속 돌다가, 방금 비운 messages/documentDraft에 뒤늦게
+    // 써버릴 수 있어서(취소 수단이 없음) 진행 중엔 막는다 — 버튼도 같이 disabled 처리.
+    if (isSending) return;
+
+    setMessages([]);
+    setInput("");
+    setDocumentDraft("");
+    setDocFormat(null);
+    setConvertError(null);
+    setRightTab("draft");
+    // undefined로 돌리면 다음 sendMessageStream 호출에 contextId를 안 실어 보내서
+    // 서버가 새 context_id를 발급함 — 즉 새 대화(스레드)로 시작됨.
+    contextIdRef.current = undefined;
+    documentStartedRef.current = false;
   };
 
   const handleConvertToHwp = async () => {
@@ -183,7 +206,13 @@ function App() {
       </header>
 
       <div className="flex items-center gap-2 border-b px-4 py-2">
-        <Button variant="outline" size="sm" className="h-7 gap-1 text-xs">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1 text-xs"
+          onClick={handleNewConversation}
+          disabled={isSending}
+        >
           <ChevronLeft className="size-3" />
           새 보고서 작업
           <ChevronRight className="size-3" />

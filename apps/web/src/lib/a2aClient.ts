@@ -31,6 +31,21 @@ interface StreamEvent {
 // executor.py가 write_document 체인 청크에 이 값을 message.metadata.tag로 실어 보냄.
 const WRITE_DOCUMENT_TAG = "write_document";
 
+/**
+ * 스트림 도중 에러가 나도, 그 전에 서버가 이미 발급한 contextId(Task 생성 이벤트가
+ * 제일 먼저 오므로 거의 항상 존재)는 살려서 던진다 — 안 이러면 호출부가 catch에서
+ * 이 턴의 contextId를 영영 알 수 없어서, 다음 메시지가 새 대화로 끊겨버린다.
+ */
+export class SendMessageStreamError extends Error {
+  contextId?: string;
+
+  constructor(message: string, contextId?: string) {
+    super(message);
+    this.name = "SendMessageStreamError";
+    this.contextId = contextId;
+  }
+}
+
 export interface SendMessageStreamOptions {
   onChunk: (chunk: string) => void;
   // 주어지면, write_document 태그가 붙은 청크(문서 작성 체인이 만든 본문)는
@@ -69,64 +84,74 @@ export async function sendMessageStream(
     },
   };
 
-  const res = await fetch(`${AGENT_URL}/`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "A2A-Version": "1.0",
-      Accept: "text/event-stream",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok || !res.body) {
-    throw new Error(`Stream request failed: ${res.status}`);
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
   let observedContextId = contextId;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  // 어디서 실패하든(네트워크 오류, 파싱 오류, 서버가 보낸 명시적 error 이벤트) 그때까지
+  // observedContextId에 쌓인 값을 SendMessageStreamError에 실어 던진다 — Task 생성
+  // 이벤트가 스트림에서 제일 먼저 오기 때문에 거의 항상 뭔가는 잡혀 있고, 이게 없으면
+  // 호출부는 이번 턴의 contextId를 영영 모른 채 다음 메시지를 새 대화로 보내게 된다.
+  try {
+    const res = await fetch(`${AGENT_URL}/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "A2A-Version": "1.0",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify(payload),
+    });
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
+    if (!res.ok || !res.body) {
+      throw new Error(`Stream request failed: ${res.status}`);
+    }
 
-    for (const line of lines) {
-      if (!line.startsWith("data:")) continue;
-      const jsonStr = line.slice(5).trim();
-      if (!jsonStr) continue;
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
 
-      const event: StreamEvent = JSON.parse(jsonStr);
-      if (event.error) {
-        throw new Error(event.error.message);
-      }
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-      observedContextId =
-        event.result?.task?.contextId ?? event.result?.statusUpdate?.contextId ?? observedContextId;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
 
-      const status = event.result?.statusUpdate?.status;
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const jsonStr = line.slice(5).trim();
+        if (!jsonStr) continue;
 
-      // TASK_STATE_COMPLETED의 message는 새 조각이 아니라 지금까지 누적된
-      // 전체 텍스트를 다시 담고 있음 — onChunk로 또 이어붙이면 중복됨.
-      if (status?.state === "TASK_STATE_COMPLETED") return observedContextId;
+        const event: StreamEvent = JSON.parse(jsonStr);
+        if (event.error) {
+          throw new Error(event.error.message);
+        }
 
-      const chunkText = textFromParts(status?.message?.parts);
-      if (!chunkText) continue;
+        observedContextId =
+          event.result?.task?.contextId ?? event.result?.statusUpdate?.contextId ?? observedContextId;
 
-      if (status?.message?.metadata?.tag === WRITE_DOCUMENT_TAG) {
-        onDocumentChunk?.(chunkText);
-      } else {
-        onChunk(chunkText);
+        const status = event.result?.statusUpdate?.status;
+
+        // TASK_STATE_COMPLETED의 message는 새 조각이 아니라 지금까지 누적된
+        // 전체 텍스트를 다시 담고 있음 — onChunk로 또 이어붙이면 중복됨.
+        if (status?.state === "TASK_STATE_COMPLETED") return observedContextId;
+
+        const chunkText = textFromParts(status?.message?.parts);
+        if (!chunkText) continue;
+
+        if (status?.message?.metadata?.tag === WRITE_DOCUMENT_TAG) {
+          onDocumentChunk?.(chunkText);
+        } else {
+          onChunk(chunkText);
+        }
       }
     }
-  }
 
-  return observedContextId;
+    return observedContextId;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new SendMessageStreamError(message, observedContextId);
+  }
 }
 
 /**
