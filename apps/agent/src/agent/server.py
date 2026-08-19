@@ -16,6 +16,7 @@ from starlette.routing import Route
 from agent.executor import ReportChatAgentExecutor
 from agent.graph.graph import build_graph
 from agent.properties import LITELLM_BASE_URL, LITELLM_MASTER_KEY, POSTGRES_URL
+from agent.sessions import get_session, list_sessions
 
 
 async def list_models(request: Request) -> JSONResponse:
@@ -47,10 +48,19 @@ def build_app(agent_card: AgentCard) -> Starlette:
             executor.set_graph(build_graph(checkpointer))
             yield
 
+    async def list_sessions_route(request: Request) -> JSONResponse:
+        return JSONResponse({"sessions": await list_sessions()})
+
+    async def get_session_route(request: Request) -> JSONResponse:
+        context_id = request.path_params["context_id"]
+        return JSONResponse(await get_session(executor.graph, context_id))
+
     routes = [
         *create_agent_card_routes(agent_card),
         *create_jsonrpc_routes(request_handler, "/"),
         Route("/models", list_models, methods=["GET"]),
+        Route("/sessions", list_sessions_route, methods=["GET"]),
+        Route("/sessions/{context_id}", get_session_route, methods=["GET"]),
     ]
     # Dev-only: allow the Vite dev server (different origin) to call this API directly.
     middleware = [

@@ -167,3 +167,34 @@ export async function listModels(): Promise<string[]> {
   const body: { data?: { id: string }[] } = await res.json();
   return body.data?.map((model) => model.id) ?? [];
 }
+
+export interface SessionSummary {
+  context_id: string;
+  title: string;
+  updated_at: string | null;
+}
+
+export interface Session {
+  context_id: string;
+  messages: { role: "user" | "agent"; text: string }[];
+  document_draft: string | null;
+}
+
+/** Postgres에 남아있는 대화(thread_id)별 최신 상태를 조회 — 최근순으로 정렬돼서 옴. */
+export async function listSessions(): Promise<SessionSummary[]> {
+  const res = await fetch(`${AGENT_URL}/sessions`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch sessions: ${res.status}`);
+  }
+  const body: { sessions?: SessionSummary[] } = await res.json();
+  return body.sessions ?? [];
+}
+
+/** 이전 대화를 다시 열 때 채팅창/문서초안을 복원하는 데 필요한 것만 받아온다. */
+export async function getSession(contextId: string): Promise<Session> {
+  const res = await fetch(`${AGENT_URL}/sessions/${contextId}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch session: ${res.status}`);
+  }
+  return res.json();
+}

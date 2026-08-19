@@ -30,6 +30,10 @@ class ReportChatAgentExecutor(AgentExecutor):
     def set_graph(self, graph) -> None:
         self._graph = graph
 
+    @property
+    def graph(self):
+        return self._graph
+
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         if self._graph is None:
             raise RuntimeError("Graph is not initialized — set_graph()을 먼저 호출하세요.")

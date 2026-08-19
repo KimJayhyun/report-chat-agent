@@ -6,6 +6,7 @@ import {
   Columns2,
   Cpu,
   FileText,
+  History,
   LayoutTemplate,
   Loader2,
   NotebookPen,
@@ -21,7 +22,14 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import { SendMessageStreamError, listModels, sendMessageStream } from "@/lib/a2aClient";
+import {
+  SendMessageStreamError,
+  getSession,
+  listModels,
+  listSessions,
+  sendMessageStream,
+  type SessionSummary,
+} from "@/lib/a2aClient";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +42,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
@@ -76,6 +85,10 @@ function App() {
   const [convertError, setConvertError] = useState<string | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const hwpEditorRef = useRef<HwpEditorHandle>(null);
   // write_document 청크는 매 호출마다 문서 "전체"를 다시 스트리밍하므로, 이번 턴에서
@@ -166,6 +179,35 @@ function App() {
     documentStartedRef.current = false;
   };
 
+  const handleOpenSessions = () => {
+    setSessionsOpen(true);
+    setIsLoadingSessions(true);
+    setSessionsError(null);
+    // 목록은 대화가 바뀔 때마다 달라지니 열 때마다 새로 조회한다(캐시 없음).
+    listSessions()
+      .then(setSessions)
+      .catch((err) => setSessionsError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setIsLoadingSessions(false));
+  };
+
+  const handleResumeSession = async (contextId: string) => {
+    if (isSending) return;
+    try {
+      const session = await getSession(contextId);
+      setMessages(session.messages);
+      setDocumentDraft(session.document_draft ?? "");
+      setDocFormat(null);
+      setConvertError(null);
+      setRightTab("draft");
+      contextIdRef.current = session.context_id;
+      documentStartedRef.current = false;
+      setSessionsOpen(false);
+      requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "auto" }));
+    } catch (err) {
+      setSessionsError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const handleConvertToHwp = async () => {
     if (!documentDraft.trim() || isConverting) return;
     setIsConverting(true);
@@ -199,9 +241,30 @@ function App() {
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="size-7">
-            <Settings className="size-4" />
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="size-7">
+                <Settings className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel className="flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                <Cpu className="size-3" />
+                모델
+              </DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={selectedModel} onValueChange={setSelectedModel}>
+                {models.length === 0 ? (
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground">불러오는 중...</p>
+                ) : (
+                  models.map((model) => (
+                    <DropdownMenuRadioItem key={model} value={model}>
+                      {model}
+                    </DropdownMenuRadioItem>
+                  ))
+                )}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
@@ -228,23 +291,48 @@ function App() {
           {docFormat ? docFormat.name : "문서서식 선택"}
         </Button>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" disabled={models.length === 0}>
-              <Cpu className="size-3" />
-              {selectedModel ?? "모델 선택"}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuRadioGroup value={selectedModel} onValueChange={setSelectedModel}>
-              {models.map((model) => (
-                <DropdownMenuRadioItem key={model} value={model}>
-                  {model}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={handleOpenSessions}>
+          <History className="size-3" />
+          이전 대화
+        </Button>
+
+        <Dialog open={sessionsOpen} onOpenChange={setSessionsOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>이전 대화</DialogTitle>
+            </DialogHeader>
+            {isLoadingSessions ? (
+              <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                불러오는 중...
+              </div>
+            ) : sessionsError ? (
+              <p className="py-6 text-center text-sm text-destructive">{sessionsError}</p>
+            ) : sessions.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                아직 저장된 대화가 없습니다.
+              </p>
+            ) : (
+              <div className="flex max-h-96 flex-col gap-1 overflow-y-auto">
+                {sessions.map((session) => (
+                  <button
+                    key={session.context_id}
+                    type="button"
+                    onClick={() => handleResumeSession(session.context_id)}
+                    className="flex flex-col gap-0.5 rounded-lg border p-3 text-left transition-colors hover:bg-muted"
+                  >
+                    <p className="text-sm font-medium">{session.title}</p>
+                    {session.updated_at && (
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(session.updated_at).toLocaleString("ko-KR")}
+                      </p>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={formatPickerOpen} onOpenChange={setFormatPickerOpen}>
           <DialogContent className="sm:max-w-4xl">
