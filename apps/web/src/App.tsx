@@ -5,6 +5,8 @@ import {
   Cpu,
   ExternalLink,
   FileText,
+  FolderCheck,
+  FolderOpen,
   History,
   LayoutTemplate,
   Loader2,
@@ -12,10 +14,12 @@ import {
   PanelLeft,
   PanelRight,
   Plus,
+  RefreshCw,
   Send,
   Settings,
   Sparkles,
   Wand2,
+  X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
@@ -55,6 +59,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { DOC_FORMATS, type DocFormat } from "@/lib/docFormats";
 import { markdownToHwpBytes } from "@/lib/markdownToHwp";
 import { cn } from "@/lib/utils";
+import {
+  isFileSystemAccessSupported,
+  pickWorkspaceFolder,
+  readWorkspaceTextFiles,
+  writeWorkspaceFile,
+} from "@/lib/workspaceFolder";
 
 interface ChatMessage {
   role: "user" | "agent";
@@ -88,6 +98,15 @@ function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
+  // 작업 폴더 핸들은 새로고침하면 사라짐(세션 동안만 유지하기로 결정) — 로컬
+  // 파일시스템 접근이라 서버는 이 상태를 전혀 모른다.
+  const [workspaceDir, setWorkspaceDir] = useState<FileSystemDirectoryHandle | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  // 실제로 읽히는 파일이 뭔지 눈으로 확인할 수 있게, 연결/전송/새로고침 시점마다
+  // 스캔한 이름 목록을 따로 들고 있음(내용까지 state에 안 두는 이유: 화면엔 이름만
+  // 필요하고, 전송 시 필요한 내용은 handleSend에서 그때그때 다시 읽음).
+  const [workspaceFileNames, setWorkspaceFileNames] = useState<string[] | null>(null);
+  const [isLoadingWorkspaceFiles, setIsLoadingWorkspaceFiles] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const hwpEditorRef = useRef<HwpEditorHandle>(null);
   // write_document 청크는 매 호출마다 문서 "전체"를 다시 스트리밍하므로, 이번 턴에서
@@ -119,6 +138,25 @@ function App() {
     setIsSending(true);
     documentStartedRef.current = false;
 
+    // 작업 폴더가 연결돼 있으면 최상위 .txt/.md 파일 내용을 참고자료로 붙여서 보낸다.
+    // 화면에는 원래 사용자 메시지(trimmed)만 보이고, 백엔드로 보내는 텍스트에만 실림 —
+    // A2A 프로토콜/백엔드 변경 없이 텍스트에 얹는 방식이라 별도 FilePart 확장이 필요 없음.
+    let sendText = trimmed;
+    if (workspaceDir) {
+      try {
+        const files = await readWorkspaceTextFiles(workspaceDir);
+        setWorkspaceFileNames(files.map((f) => f.name));
+        if (files.length > 0) {
+          const context = files
+            .map((f) => `### ${f.name}\n${f.content}`)
+            .join("\n\n---\n\n");
+          sendText = `다음은 작업 폴더에 있는 참고 파일입니다. 필요하면 활용하세요.\n\n${context}\n\n---\n\n${trimmed}`;
+        }
+      } catch (err) {
+        setWorkspaceError(err instanceof Error ? err.message : String(err));
+      }
+    }
+
     const appendToLastMessage = (chunk: string) => {
       setMessages((prev) => {
         const next = [...prev];
@@ -129,19 +167,32 @@ function App() {
       requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
     };
 
+    // setDocumentDraft만으로는 비동기 상태 업데이트라 이 함수 스코프에서 "지금까지
+    // 쌓인 최종 텍스트"를 바로 읽을 수 없어서, 폴더에 저장할 때 쓰려고 별도로 들고 있음.
+    let latestDocumentText = "";
     const appendToDocument = (chunk: string) => {
-      setDocumentDraft((prev) => (documentStartedRef.current ? prev + chunk : chunk));
+      latestDocumentText = documentStartedRef.current ? latestDocumentText + chunk : chunk;
+      setDocumentDraft(latestDocumentText);
       documentStartedRef.current = true;
       setRightTab("draft");
     };
 
     try {
-      contextIdRef.current = await sendMessageStream(trimmed, {
+      contextIdRef.current = await sendMessageStream(sendText, {
         onChunk: appendToLastMessage,
         onDocumentChunk: appendToDocument,
         contextId: contextIdRef.current,
         model: selectedModel,
       });
+
+      // 문서 초안이 갱신됐으면 폴더에도 바로 반영 — 매번 다운로드 버튼을 누를 필요 없음.
+      if (workspaceDir && documentStartedRef.current && latestDocumentText.trim()) {
+        try {
+          await writeWorkspaceFile(workspaceDir, "문서초안.md", latestDocumentText);
+        } catch (err) {
+          setWorkspaceError(err instanceof Error ? err.message : String(err));
+        }
+      }
     } catch (err) {
       // 스트림이 도중에 끊겨도 서버가 이미 발급한 contextId는 살려서 이어감 —
       // 안 그러면 다음 메시지가 (실패한 턴과) 다른 새 대화로 갈라짐.
@@ -176,6 +227,39 @@ function App() {
     // 서버가 새 context_id를 발급함 — 즉 새 대화(스레드)로 시작됨.
     contextIdRef.current = undefined;
     documentStartedRef.current = false;
+  };
+
+  const handlePickWorkspace = async () => {
+    try {
+      const handle = await pickWorkspaceFolder();
+      setWorkspaceDir(handle);
+      setWorkspaceError(null);
+      // 연결 직후 바로 스캔해서 보여줘야 "진짜로 이 폴더를 보고 있다"를 확인할 수 있음.
+      await scanWorkspaceFiles(handle);
+    } catch (err) {
+      // 사용자가 폴더 선택 다이얼로그를 취소한 경우 — 에러로 취급하지 않는다.
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      setWorkspaceError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const scanWorkspaceFiles = async (handle: FileSystemDirectoryHandle) => {
+    setIsLoadingWorkspaceFiles(true);
+    try {
+      const files = await readWorkspaceTextFiles(handle);
+      setWorkspaceFileNames(files.map((f) => f.name));
+      setWorkspaceError(null);
+    } catch (err) {
+      setWorkspaceError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoadingWorkspaceFiles(false);
+    }
+  };
+
+  const handleClearWorkspace = () => {
+    setWorkspaceDir(null);
+    setWorkspaceFileNames(null);
+    setWorkspaceError(null);
   };
 
   const handleOpenSessions = () => {
@@ -215,6 +299,16 @@ function App() {
       const bytes = await markdownToHwpBytes(documentDraft);
       await hwpEditorRef.current?.loadFile(bytes, "문서초안.hwp");
       setRightTab("editor");
+
+      if (workspaceDir) {
+        try {
+          // Uint8Array<ArrayBufferLike>는 BlobPart로 바로 안 들어가서(TS가 SharedArrayBuffer
+          // 가능성을 배제 못 함) ArrayBuffer로 못박은 새 사본을 만들어 넘긴다.
+          await writeWorkspaceFile(workspaceDir, "문서초안.hwp", new Blob([new Uint8Array(bytes)]));
+        } catch (err) {
+          setWorkspaceError(err instanceof Error ? err.message : String(err));
+        }
+      }
     } catch (err) {
       setConvertError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -272,6 +366,68 @@ function App() {
           <History className="size-3" />
           이전 대화
         </Button>
+
+        {isFileSystemAccessSupported() &&
+          (workspaceDir ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-7 items-center gap-1 rounded-full border bg-muted/50 px-2 text-xs hover:bg-muted"
+                >
+                  <FolderCheck className="size-3 text-primary" />
+                  <span className="max-w-28 truncate" title={workspaceDir.name}>
+                    {workspaceDir.name}
+                  </span>
+                  <span className="text-muted-foreground">
+                    ({isLoadingWorkspaceFiles ? "…" : (workspaceFileNames?.length ?? 0)})
+                  </span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-64">
+                <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                  인식된 참고 파일 (최상위 .txt/.md)
+                </div>
+                {isLoadingWorkspaceFiles ? (
+                  <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
+                    <Loader2 className="size-3 animate-spin" />
+                    불러오는 중...
+                  </div>
+                ) : workspaceFileNames && workspaceFileNames.length > 0 ? (
+                  workspaceFileNames.map((name) => (
+                    <div key={name} className="flex items-center gap-1.5 px-2 py-1 text-xs">
+                      <FileText className="size-3 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{name}</span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="px-2 py-2 text-xs text-muted-foreground">
+                    최상위에 .txt/.md 파일이 없습니다.
+                  </p>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => scanWorkspaceFiles(workspaceDir)}>
+                  <RefreshCw className="size-3.5" />
+                  새로고침
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleClearWorkspace} variant="destructive">
+                  <X className="size-3.5" />
+                  연결 해제
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 text-xs"
+              onClick={handlePickWorkspace}
+              title="폴더를 선택하면 참고자료를 읽고 결과물을 그 폴더에 저장합니다"
+            >
+              <FolderOpen className="size-3" />
+              작업 폴더 연결
+            </Button>
+          ))}
 
         <Dialog open={sessionsOpen} onOpenChange={setSessionsOpen}>
           <DialogContent className="sm:max-w-lg">
@@ -343,6 +499,12 @@ function App() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {workspaceError && (
+        <p className="border-b bg-destructive/10 px-4 py-1.5 text-xs text-destructive">
+          작업 폴더 오류: {workspaceError}
+        </p>
+      )}
 
       <ScrollArea className="flex-1">
         {messages.length === 0 ? (

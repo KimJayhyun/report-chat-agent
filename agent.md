@@ -122,27 +122,39 @@ docker compose up -d          # litellm + postgres
 - **"근거자료로 작성" 추천 카드**(`SUGGESTIONS` 배열, `App.tsx`)도 비슷한 문제 —
   "정부 보도자료를 찾아 근거를 확인한 뒤 작성합니다"라고 돼 있는데 실제 웹 검색 tool이
   없어서 못 지키는 약속. 지우거나 문구를 바꿔야 함(사용자 확인 대기 중).
-- **파일 첨부 기능 — 지금 이 사이에 하던 작업, 미완성**:
+- **작업 폴더 연결 — File System Access API로 구현 완료, 실제 폴더 선택 다이얼로그
+  기준 수동 검증은 아직 안 함**:
   - 배경: "agent가 사용자 디렉토리에 접근할 수 있냐"는 질문에서 시작 → 서버가 사용자
-    로컬 파일시스템에 직접 접근할 방법은 없다는 걸 확인 → 실제로 필요한 건 **브라우저에서
-    파일을 골라 채팅에 첨부하는 기능**이라는 결론.
-  - A2A 프로토콜이 `FilePart`(base64 인코딩, `FileWithBytes`: `bytes`/`mime_type`/`name`)를
-    이미 지원함 확인함(`a2a.types`). 새 인프라 필요 없이 메시지 `parts`에 TextPart와
-    나란히 넣으면 됨.
-  - 스코프 결정: **텍스트 계열(.txt, .md)만 우선 지원**하기로 함(HWP까지 포함하는 옵션도
-    검토했으나 텍스트만으로 시작하기로 결정). 브라우저에서 그냥 디코딩해서 바로 쓸 수
-    있어 구현이 제일 간단함.
-  - **여기서 대화가 끊김 — 다음 세션에서 할 일**:
-    1. `apps/web/src/lib/a2aClient.ts`의 `sendMessageStream`이 파일(들)을 받아서
-       `FilePart`로 `parts` 배열에 추가하도록 옵션 확장.
-    2. `App.tsx`에 파일 선택 UI 복원(죽어있던 클립 버튼 자리) — `.txt`/`.md`만 accept,
-       선택된 파일 chip으로 표시, 전송 시 내용을 base64로 읽어서 실어 보냄.
-    3. agent 쪽: `executor.py`의 `get_message_text()`는 지금 TextPart만 읽을 텐데,
-       FilePart도 디코딩해서 어딘가에 반영해야 함 — 어디에 반영할지(예: `query`에
-       합치기 vs `messages`에 별도 컨텍스트로 추가 vs 새 state 필드) 아직 미정, 다음
-       세션에서 설계 필요.
-    4. `write_document` 프롬프트가 첨부 파일 내용을 참고 자료로 쓰도록 안내 문구 추가
-       검토.
+    로컬 파일시스템에 직접 접근할 방법은 없다는 걸 확인 → 처음엔 "개별 파일을 채팅에
+    첨부"하는 방향(A2A `FilePart`)을 검토했다가, 이후 세션에서 사용자가 **"폴더 단위로
+    동의 후 접근"**을 원한다고 명확히 해서 방향을 바꿈.
+  - **서버가 아니라 브라우저 탭이 직접 접근하는 구조**라는 게 핵심 — Python agent는
+    이 폴더의 존재 자체를 모름. A2A 프로토콜/백엔드는 전혀 안 건드림(FilePart 확장
+    안 함). 대신 프론트가 폴더에서 읽은 텍스트를 **기존 텍스트 메시지에 컨텍스트로
+    얹어서** 보내고, 결과물은 프론트가 **직접 폴더에 파일을 씀**.
+  - 스코프 결정(사용자 확인):
+    - 권한 범위: **읽기 + 쓰기**(참고자료 탐색 + 결과물 폴더 저장 둘 다).
+    - 지속성: **이번 대화 세션 동안만**(새로고침하면 사라짐 — IndexedDB에 handle
+      저장해서 재방문 시 재사용하는 건 스코프 밖으로 미룸).
+    - 읽는 파일: 폴더 **최상위**의 `.txt`/`.md`만(하위 폴더 재귀 탐색 안 함), 파일당
+      200KB 넘으면 조용히 건너뜀(컨텍스트 폭주 방지).
+  - 구현:
+    - `apps/web/src/types/file-system-access.d.ts`: TS 기본 DOM lib에 없는
+      `showDirectoryPicker`/`entries()`/`queryPermission` 등을 전역 인터페이스
+      보강으로 추가.
+    - `apps/web/src/lib/workspaceFolder.ts`: `pickWorkspaceFolder()`(mode:
+      "readwrite"로 한 번에 동의 받음), `readWorkspaceTextFiles()`,
+      `writeWorkspaceFile()`.
+    - `App.tsx`: 툴바에 "작업 폴더 연결" 버튼(연결되면 폴더명 칩 + 해제 버튼으로
+      바뀜, `FileSystemDirectoryHandle`은 File System Access API 미지원 브라우저
+      — Safari/Firefox — 에선 버튼 자체를 숨김). `handleSend`가 폴더 연결 시
+      전송 직전 텍스트 파일들을 읽어 사용자 메시지 앞에 참고자료 블록으로 붙여서
+      보냄(채팅 버블에는 원본 텍스트만 표시). 문서 초안이 갱신될 때마다
+      `문서초안.md`를, `한글로 변환` 성공 시 `문서초안.hwp`를 폴더에 자동 저장.
+  - **다음에 할 일**: 헤드리스 브라우저로는 OS 네이티브 폴더 선택 다이얼로그 자체를
+    구동할 수 없어서, 버튼 렌더링/클릭 시 무에러까지만 자동 확인함 — 실제 폴더 선택
+    → 참고자료 반영 → `문서초안.md`/`.hwp` 저장까지는 사용자가 직접 브라우저에서
+    한 번 확인 필요.
 
 ## 참고 파일 위치
 
@@ -154,5 +166,7 @@ docker compose up -d          # litellm + postgres
 - 세션 목록: `apps/agent/src/agent/sessions.py`.
 - 프론트 A2A 클라이언트: `apps/web/src/lib/a2aClient.ts`.
 - 프론트 메인 컴포넌트(거의 전부): `apps/web/src/App.tsx`.
+- 작업 폴더(File System Access API): `apps/web/src/lib/workspaceFolder.ts`,
+  `apps/web/src/types/file-system-access.d.ts`.
 - rHWP 관련: `apps/web/src/lib/markdownToHwp.ts`, `hwpCoreTemplates.ts`,
   `apps/web/src/components/HwpEditor.tsx`.
