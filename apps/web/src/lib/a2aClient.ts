@@ -1,17 +1,5 @@
 const AGENT_URL = import.meta.env.VITE_AGENT_URL ?? "http://127.0.0.1:9999";
 
-interface JsonRpcResponse {
-  result?: {
-    task?: {
-      status?: {
-        message?: { parts?: { text?: string }[] };
-      };
-      artifacts?: { parts?: { text?: string }[] }[];
-    };
-  };
-  error?: { message: string };
-}
-
 function textFromParts(parts?: { text?: string }[]): string {
   return (
     parts
@@ -19,50 +7,6 @@ function textFromParts(parts?: { text?: string }[]): string {
       .filter(Boolean)
       .join("") ?? ""
   );
-}
-
-export async function sendMessage(text: string): Promise<string> {
-  const payload = {
-    jsonrpc: "2.0",
-    id: crypto.randomUUID(),
-    method: "SendMessage",
-    params: {
-      message: {
-        messageId: crypto.randomUUID(),
-        role: "ROLE_USER",
-        parts: [{ text }],
-      },
-    },
-  };
-
-  const res = await fetch(`${AGENT_URL}/`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "A2A-Version": "1.0",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  const body: JsonRpcResponse = await res.json();
-  if (body.error) {
-    throw new Error(body.error.message);
-  }
-
-  const task = body.result?.task;
-
-  // 최종 답변은 지금 executor 기준 task.status.message에 실려 옴.
-  // artifacts는 (다른 executor 구현 대비) 폴백으로만 확인.
-  const statusText = textFromParts(task?.status?.message?.parts);
-  if (statusText) return statusText;
-
-  const artifactText = task?.artifacts
-    ?.flatMap((artifact) => artifact.parts ?? [])
-    .map((part) => part.text)
-    .filter(Boolean)
-    .join("");
-
-  return artifactText ?? "";
 }
 
 interface StreamEvent {
