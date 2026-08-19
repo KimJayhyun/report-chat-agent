@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowDown,
-  ChevronLeft,
-  ChevronRight,
   Columns2,
   Cpu,
+  ExternalLink,
   FileText,
   History,
   LayoutTemplate,
@@ -12,10 +11,9 @@ import {
   NotebookPen,
   PanelLeft,
   PanelRight,
-  Paperclip,
+  Plus,
   Send,
   Settings,
-  Settings2,
   Sparkles,
   Wand2,
 } from "lucide-react";
@@ -23,6 +21,7 @@ import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import {
+  LITELLM_UI_URL,
   SendMessageStreamError,
   getSession,
   listModels,
@@ -42,9 +41,10 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuLabel,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { HwpEditor, type HwpEditorHandle } from "@/components/HwpEditor";
@@ -66,7 +66,6 @@ const SUGGESTIONS = [
   { tag: "보도자료", desc: "발표할 핵심 내용을 입력해 보도자료 서식으로 시작합니다." },
   { tag: "근거자료로 작성", desc: "정부 보도자료를 찾아 근거를 확인한 뒤 작성합니다." },
   { tag: "조직도 만들기", desc: "인공지능정부실 현행 조직도를 만들고 편집합니다." },
-  { tag: "HWPX", desc: "기존 한글 문서를 열어 이어서 작성합니다." },
 ];
 
 type ViewMode = "split" | "chat" | "editor";
@@ -248,21 +247,10 @@ function App() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuLabel className="flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
-                <Cpu className="size-3" />
-                모델
-              </DropdownMenuLabel>
-              <DropdownMenuRadioGroup value={selectedModel} onValueChange={setSelectedModel}>
-                {models.length === 0 ? (
-                  <p className="px-2 py-1.5 text-xs text-muted-foreground">불러오는 중...</p>
-                ) : (
-                  models.map((model) => (
-                    <DropdownMenuRadioItem key={model} value={model}>
-                      {model}
-                    </DropdownMenuRadioItem>
-                  ))
-                )}
-              </DropdownMenuRadioGroup>
+              <DropdownMenuItem onClick={() => setFormatPickerOpen(true)}>
+                <LayoutTemplate className="size-3.5" />
+                {docFormat ? docFormat.name : "문서서식 선택"}
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -276,19 +264,8 @@ function App() {
           onClick={handleNewConversation}
           disabled={isSending}
         >
-          <ChevronLeft className="size-3" />
+          <Plus className="size-3" />
           새 보고서 작업
-          <ChevronRight className="size-3" />
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 gap-1 text-xs"
-          onClick={() => setFormatPickerOpen(true)}
-        >
-          <LayoutTemplate className="size-3" />
-          {docFormat ? docFormat.name : "문서서식 선택"}
         </Button>
 
         <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={handleOpenSessions}>
@@ -373,7 +350,7 @@ function App() {
             <div>
               <h2 className="text-base font-semibold">오른쪽 한글 문서에 무엇을 작성할까요?</h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                대화로 초안을 만들거나 기존 HWPX를 바로 열 수 있습니다.
+                대화로 초안을 만들면 오른쪽에 실시간으로 표시됩니다.
               </p>
             </div>
             <div className="flex flex-col gap-2 text-left">
@@ -466,15 +443,28 @@ function App() {
           className="min-h-16 resize-none border-0 shadow-none focus-visible:ring-0"
         />
         <div className="flex items-center justify-between pt-1">
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="size-7">
-              <Paperclip className="size-3.5" />
-            </Button>
-            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground">
-              <Settings2 className="size-3.5" />
-              작성 설정 대화
-            </Button>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" disabled={models.length === 0}>
+                <Cpu className="size-3" />
+                {selectedModel ?? "모델 선택"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-56">
+              <DropdownMenuRadioGroup value={selectedModel} onValueChange={setSelectedModel}>
+                {models.map((model) => (
+                  <DropdownMenuRadioItem key={model} value={model} className="whitespace-nowrap">
+                    {model}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => window.open(LITELLM_UI_URL, "_blank")}>
+                <ExternalLink className="size-3.5" />
+                LiteLLM에서 모델 관리
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button size="icon" className="size-8" onClick={() => handleSend()} disabled={isSending}>
             <Send className="size-4" />
           </Button>

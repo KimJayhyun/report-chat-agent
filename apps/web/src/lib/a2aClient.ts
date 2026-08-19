@@ -1,5 +1,10 @@
 const AGENT_URL = import.meta.env.VITE_AGENT_URL ?? "http://127.0.0.1:9999";
 
+// litellm proxy의 관리 UI — 모델/키 등을 여기서 직접 설정할 수 있게 딥링크로만 씀
+// (agent를 거치지 않고 브라우저에서 바로 여는 링크라 agent API랑은 무관).
+export const LITELLM_UI_URL =
+  (import.meta.env.VITE_LITELLM_URL ?? "http://localhost:4000") + "/ui";
+
 function textFromParts(parts?: { text?: string }[]): string {
   return (
     parts
